@@ -1,9 +1,9 @@
 :root {
-    --primary-color: #25d366;
-    --secondary-color: #128c7e;
-    --dark-color: #075e54;
-    --light-color: #dcf8c6;
-    --accent-color: #34b7f1;
+    --primary-color: #1e3a8a;
+    --secondary-color: #dc2626;
+    --dark-color: #1e1b4b;
+    --light-color: #dbeafe;
+    --accent-color: #3b82f6;
     --text-color: #333;
     --light-text: #f5f5f5;
     --gray-bg: #f5f5f5;
@@ -43,7 +43,7 @@ header {
 
 header.scrolled {
     padding: 0.5rem 0;
-    background: rgba(7, 94, 84, 0.95);
+    background: rgba(30, 27, 75, 0.95);
     backdrop-filter: blur(10px);
     box-shadow: 0 4px 20px rgba(0,0,0,0.2);
 }
@@ -92,7 +92,7 @@ header.scrolled {
     font-size: 1.5rem;
     font-weight: 700;
     position: relative;
-    background: linear-gradient(90deg, #fff, #dcf8c6);
+    background: linear-gradient(90deg, #fff, #dbeafe);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -407,7 +407,7 @@ nav a.btn:hover {
 
 .demo-btn {
     padding: 0.85rem 1.8rem;
-    background: linear-gradient(135deg, var(--accent-color), #2196f3);
+    background: linear-gradient(135deg, var(--accent-color), var(--primary-color));
     color: white;
     border: none;
     border-radius: 30px;
@@ -427,7 +427,7 @@ nav a.btn:hover {
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(135deg, #2196f3, var(--accent-color));
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
     z-index: -1;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -522,7 +522,7 @@ body.dark-mode .typing-indicator {
 }
 
 body.dark-mode .code-block::before {
-    background-color: var(--dark-color);
+    background-color: var(--secondary-color);
 }
 
 body.dark-mode .demo-btn {
@@ -530,7 +530,7 @@ body.dark-mode .demo-btn {
 }
 
 body.dark-mode .demo-btn::before {
-    background: linear-gradient(135deg, var(--accent-color), var(--dark-color));
+    background: linear-gradient(135deg, var(--accent-color), var(--secondary-color));
 }
 
 body.dark-mode .demo-btn.active-btn {
@@ -893,7 +893,7 @@ nav a {
     border-radius: 12px;
     box-shadow: var(--card-shadow);
     transition: var(--transition-normal);
-    border-left: 3px solid var(--accent-color);
+    border-left: 3px solid var(--secondary-color);
 }
 
 .endpoint-card:hover {
@@ -921,7 +921,7 @@ nav a {
 }
 
 .endpoint-card li::marker {
-    color: var(--accent-color);
+    color: var(--secondary-color);
 }
 
 /* Usage Section */
@@ -945,7 +945,7 @@ nav a {
     position: absolute;
     top: 0;
     right: 0;
-    background-color: var(--accent-color);
+    background-color: var(--secondary-color);
     color: white;
     padding: 0.3rem 0.8rem;
     font-size: 0.8rem;
