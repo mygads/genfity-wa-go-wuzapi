@@ -1,6 +1,6 @@
 openapi: 3.0.0
 info:
-  title: GENFITY
+  title: GENFITY WA API
   description: "To receive WhatsApp messages:<ul><li>Host your own server (to process incoming messages).</li><li>Set its URL as the webhook via the [webhook](#Webhook) API call.</li></ul><h2>Phone number format:</h2><ul><li>Required: Country code (e.g. <b>5491155553934</b> for Argentina</li><li>Do not prefix with a plus sign (+), as natively whatsapp requires no plus sign prefix.</li></ul>"
   version: '3.0.0'
   termsOfService: ''
