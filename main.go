@@ -57,9 +57,11 @@ var (
 const version = "1.0.1"
 
 func init() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Warn().Err(err).Msg("It was not possible to load the .env file (it may not exist).")
+	// Load .env only if present (avoid noisy warning inside container where variables are injected by Docker)
+	if _, statErr := os.Stat(".env"); statErr == nil {
+		if loadErr := godotenv.Load(); loadErr != nil {
+			log.Warn().Err(loadErr).Msg("Failed to load .env file")
+		}
 	}
 
 	flag.Parse()

@@ -1,20 +1,30 @@
 services:
+  # ==========================================
+  # Application Service (available in dev + prod)
+  # ==========================================
   wuzapi-server:
+    profiles: ["dev", "prod"]
     build:
       context: .
       dockerfile: Dockerfile
+    # Expose directly only in dev (override or remove in production behind nginx-proxy)
     ports:
       - "8080:8080"
     environment:
-      - WUZAPI_ADMIN_TOKEN=H4Zbhw72PBKdTIgS
-      - DB_USER=wuzapi
-      - DB_PASSWORD=wuzapi
-      - DB_NAME=wuzapi
-      - DB_HOST=db
-      - DB_PORT=5432
-      - TZ=America/Sao_Paulo
-      - WEBHOOK_FORMAT=json
-      - SESSION_DEVICE_NAME=WuzAPI
+      # Core config
+      - WUZAPI_ADMIN_TOKEN=${WUZAPI_ADMIN_TOKEN:-}
+      - DB_USER=${DB_USER:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_NAME=${DB_NAME:-}
+      - DB_HOST=${DB_HOST:-}
+      - DB_PORT=${DB_PORT:-}
+      - TZ=${TZ:-}
+      - WEBHOOK_FORMAT=${WEBHOOK_FORMAT:-}
+      - SESSION_DEVICE_NAME=${SESSION_DEVICE_NAME:-}
+      # Domain & SSL (only used when prod profile with nginx-proxy + acme-companion)
+      - VIRTUAL_HOST=${WUZAPI_DOMAIN:-}
+      - LETSENCRYPT_HOST=${WUZAPI_DOMAIN:-}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
     depends_on:
       db:
         condition: service_healthy
@@ -22,12 +32,16 @@ services:
       - wuzapi-network
     restart: on-failure
 
+  # ==========================================
+  # Postgres Database (available in dev + prod)
+  # ==========================================
   db:
+    profiles: ["dev", "prod"]
     image: postgres:16
     environment:
-      POSTGRES_USER: wuzapi
-      POSTGRES_PASSWORD: wuzapi
-      POSTGRES_DB: wuzapi
+      POSTGRES_USER: ${DB_USER:-}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+      POSTGRES_DB: ${DB_NAME:-}
     ports:
       - "5432:5432"
     volumes:
@@ -35,15 +49,68 @@ services:
     networks:
       - wuzapi-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wuzapi"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-} -d ${DB_NAME:-}"]
       interval: 5s
       timeout: 5s
       retries: 5
     restart: always
-      
+
+  # ==========================================
+  # Nginx Reverse Proxy (prod only)
+  # Provides automatic reverse proxy & serves SSL certs managed by acme-companion
+  # ==========================================
+  nginx-proxy:
+    profiles: ["prod"]
+    image: nginxproxy/nginx-proxy:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nginx_certs:/etc/nginx/certs
+      - nginx_vhost:/etc/nginx/vhost.d
+      - nginx_html:/usr/share/nginx/html
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    networks:
+      - wuzapi-network
+    restart: unless-stopped
+
+  # ==========================================
+  # Let's Encrypt ACME Companion (prod only)
+  # Automatically obtains & renews SSL certs for VIRTUAL_HOST containers
+  # ==========================================
+  acme-companion:
+    profiles: ["prod"]
+    image: nginxproxy/acme-companion
+    depends_on:
+      - nginx-proxy
+    environment:
+      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL:-}
+    volumes:
+      - nginx_certs:/etc/nginx/certs
+      - nginx_vhost:/etc/nginx/vhost.d
+      - nginx_html:/usr/share/nginx/html
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - wuzapi-network
+    restart: unless-stopped
+
 networks:
   wuzapi-network:
     driver: bridge
 
 volumes:
   db_data:
+  nginx_certs:
+  nginx_vhost:
+  nginx_html:
+
+# ==========================================
+# Usage:
+#   Dev (app + db only):
+#     docker compose --profile dev up -d
+#
+#   Prod (app + db + nginx proxy + automatic SSL):
+#     1. Copy .env.example to .env and set WUZAPI_DOMAIN & LETSENCRYPT_EMAIL
+#     2. Run: docker compose --profile prod up -d
+#     3. Certificates auto-created & renewed by acme-companion
+# ==========================================
