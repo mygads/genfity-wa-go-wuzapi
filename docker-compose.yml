@@ -62,6 +62,7 @@ services:
   nginx-proxy:
     profiles: ["prod"]
     image: nginxproxy/nginx-proxy:alpine
+    container_name: nginx-proxy
     ports:
       - "80:80"
       - "443:443"
@@ -73,6 +74,8 @@ services:
     networks:
       - wuzapi-network
     restart: unless-stopped
+    labels:
+      - "com.github.nginx-proxy.nginx=true"
 
   # ==========================================
   # Let's Encrypt ACME Companion (prod only)
@@ -81,10 +84,12 @@ services:
   acme-companion:
     profiles: ["prod"]
     image: nginxproxy/acme-companion
+    container_name: acme-companion
     depends_on:
       - nginx-proxy
     environment:
       - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL:-}
+      - NGINX_PROXY_CONTAINER=nginx-proxy
     volumes:
       - nginx_certs:/etc/nginx/certs
       - nginx_vhost:/etc/nginx/vhost.d
