@@ -812,6 +812,11 @@ func (s *server) SendDocument() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "document")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -933,6 +938,11 @@ func (s *server) SendAudio() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "audio")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1089,6 +1099,11 @@ func (s *server) SendImage() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "image")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1212,6 +1227,11 @@ func (s *server) SendSticker() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "sticker")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1337,6 +1357,11 @@ func (s *server) SendVideo() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "video")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1430,6 +1455,11 @@ func (s *server) SendContact() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "contact")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1525,6 +1555,11 @@ func (s *server) SendLocation() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "location")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1629,6 +1664,16 @@ func (s *server) SendButtons() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		buttonsMsg := &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{
+			Message: &waE2E.Message{
+				ButtonsMessage: msg2,
+			},
+		}}
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, buttonsMsg, "buttons")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1775,6 +1820,10 @@ func (s *server) SendList() http.HandlerFunc {
 			return
 		}
 
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "list")
+
 		response := map[string]interface{}{
 			"Details":   "Sent",
 			"Timestamp": resp.Timestamp,
@@ -1869,6 +1918,11 @@ func (s *server) SendMessage() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Message sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, msg, "text")
+
 		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
 		responseJson, err := json.Marshal(response)
 		if err != nil {
@@ -1943,6 +1997,10 @@ func (s *server) SendPoll() http.HandlerFunc {
 		}
 
 		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Poll sent")
+
+		// Send webhook for sent message
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		go sendMessageSentWebhook(txtid, token, msgid, resp.Timestamp, recipient, pollMessage, "poll")
 
 		response := map[string]interface{}{"Details": "Poll sent successfully", "Id": msgid}
 		responseJson, err := json.Marshal(response)

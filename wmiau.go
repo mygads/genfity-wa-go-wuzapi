@@ -187,6 +187,30 @@ func sendEventWithWebHook(mycli *MyClient, postmap map[string]interface{}, path 
 	go sendToGlobalRabbit(jsonData)
 }
 
+func sendMessageSentWebhook(userID string, token string, msgID string, timestamp time.Time, recipient types.JID, message interface{}, messageType string) {
+	mycli := clientManager.GetMyClient(userID)
+	if mycli == nil {
+		log.Warn().Str("userID", userID).Msg("Could not send MessageSent webhook: no client found")
+		return
+	}
+
+	// Create webhook payload for sent message
+	sentPostmap := make(map[string]interface{})
+	sentPostmap["type"] = "MessageSent"
+	sentPostmap["event"] = map[string]interface{}{
+		"Info": map[string]interface{}{
+			"ID":          msgID,
+			"Timestamp":   timestamp,
+			"Chat":        recipient.String(),
+			"IsFromMe":    true,
+			"MessageType": messageType,
+		},
+		"Message": message,
+	}
+
+	sendEventWithWebHook(mycli, sentPostmap, "")
+}
+
 func checkIfSubscribedToEvent(subscribedEvents []string, eventType string, userId string) bool {
 	if !Find(subscribedEvents, eventType) && !Find(subscribedEvents, "All") {
 		log.Warn().
