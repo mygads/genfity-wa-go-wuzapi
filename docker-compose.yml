@@ -1,121 +1,76 @@
 services:
-  # ==========================================
-  # Application Service (available in dev + prod)
-  # ==========================================
-  wuzapi-server:
-    profiles: ["dev", "prod"]
+  genfity-wa:
     build:
       context: .
       dockerfile: Dockerfile
-    # Expose directly only in dev (override or remove in production behind nginx-proxy)
-    ports:
-      - "8080:8080"
+    container_name: genfity-wa
     environment:
-      # Core config
-      - WUZAPI_ADMIN_TOKEN=${WUZAPI_ADMIN_TOKEN:-}
-      - DB_USER=${DB_USER:-}
-      - DB_PASSWORD=${DB_PASSWORD:-}
-      - DB_NAME=${DB_NAME:-}
-      - DB_HOST=${DB_HOST:-}
-      - DB_PORT=${DB_PORT:-}
-      - TZ=${TZ:-}
-      - WEBHOOK_FORMAT=${WEBHOOK_FORMAT:-}
-      - SESSION_DEVICE_NAME=${SESSION_DEVICE_NAME:-}
-      # Domain & SSL (only used when prod profile with nginx-proxy + acme-companion)
-      - VIRTUAL_HOST=${WUZAPI_DOMAIN:-}
-      - LETSENCRYPT_HOST=${WUZAPI_DOMAIN:-}
-      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSLMODE=${DB_SSLMODE}
+      - PORT=${PORT}
+      - TZ=${TZ}
+      - WUZAPI_ADMIN_TOKEN=${WUZAPI_ADMIN_TOKEN}
+      - WEBHOOK_FORMAT=${WEBHOOK_FORMAT}
+      - SESSION_DEVICE_NAME=${SESSION_DEVICE_NAME}
+      - GIN_MODE=${GIN_MODE}
+      - LOG_LEVEL=${LOG_LEVEL}
+    ports:
+      - "${PORT}:${PORT}"
+    networks:
+      - genfity-network
     depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - wuzapi-network
-    restart: on-failure
-
-  # ==========================================
-  # Postgres Database (available in dev + prod)
-  # ==========================================
-  db:
-    profiles: ["dev", "prod"]
-    image: postgres:16
-    environment:
-      POSTGRES_USER: ${DB_USER:-}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
-      POSTGRES_DB: ${DB_NAME:-}
-    ports:
-      - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    networks:
-      - wuzapi-network
+      - db-check
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-} -d ${DB_NAME:-}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: always
+      test: ["CMD", "curl", "--no-verbose", "--tries=1", "--spider", "http://localhost:${PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  # ==========================================
-  # Nginx Reverse Proxy (prod only)
-  # Provides automatic reverse proxy & serves SSL certs managed by acme-companion
-  # ==========================================
-  nginx-proxy:
-    profiles: ["prod"]
-    image: nginxproxy/nginx-proxy:alpine
-    container_name: nginx-proxy
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - nginx_certs:/etc/nginx/certs
-      - nginx_vhost:/etc/nginx/vhost.d
-      - nginx_html:/usr/share/nginx/html
-      - /var/run/docker.sock:/tmp/docker.sock:ro
-    networks:
-      - wuzapi-network
-    restart: unless-stopped
-    labels:
-      - "com.github.nginx-proxy.nginx=true"
-
-  # ==========================================
-  # Let's Encrypt ACME Companion (prod only)
-  # Automatically obtains & renews SSL certs for VIRTUAL_HOST containers
-  # ==========================================
-  acme-companion:
-    profiles: ["prod"]
-    image: nginxproxy/acme-companion
-    container_name: acme-companion
-    depends_on:
-      - nginx-proxy
+  db-check:
+    image: postgres:16
+    container_name: genfity-db-check
     environment:
-      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL:-}
-      - NGINX_PROXY_CONTAINER=nginx-proxy
-    volumes:
-      - nginx_certs:/etc/nginx/certs
-      - nginx_vhost:/etc/nginx/vhost.d
-      - nginx_html:/usr/share/nginx/html
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - PGHOST=${DB_HOST}
+      - PGPORT=${DB_PORT}
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASSWORD}
+      - PGDATABASE=${DB_NAME}
     networks:
-      - wuzapi-network
-    restart: unless-stopped
+      - genfity-network
+    command: >
+      sh -c "
+        echo 'Checking database connection...'
+        until pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER} -d postgres; do
+          echo 'Waiting for PostgreSQL server...'
+          sleep 2
+        done
+        echo 'PostgreSQL server is ready!'
+        
+        echo 'Checking if database exists...'
+        if psql -h ${DB_HOST} -U ${DB_USER} -d postgres -lqt | cut -d \\| -f 1 | grep -qw ${DB_NAME}; then
+          echo 'Database ${DB_NAME} exists'
+        else
+          echo 'Database ${DB_NAME} does not exist, creating...'
+          psql -h ${DB_HOST} -U ${DB_USER} -d postgres -c 'CREATE DATABASE ${DB_NAME};'
+          echo 'Database ${DB_NAME} created'
+        fi
+        
+        echo 'Database check completed successfully'
+      "
 
 networks:
-  wuzapi-network:
-    driver: bridge
-
-volumes:
-  db_data:
-  nginx_certs:
-  nginx_vhost:
-  nginx_html:
+  genfity-network:
+    external: true
+    name: server_genfity-network
 
 # ==========================================
 # Usage:
-#   Dev (app + db only):
-#     docker compose --profile dev up -d
-#
-#   Prod (app + db + nginx proxy + automatic SSL):
-#     1. Copy .env.example to .env and set WUZAPI_DOMAIN & LETSENCRYPT_EMAIL
-#     2. Run: docker compose --profile prod up -d
-#     3. Certificates auto-created & renewed by acme-companion
+#   Copy .env.example to .env and configure
+#   Then run: docker compose up -d
 # ==========================================
