@@ -17,6 +17,7 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -426,30 +427,25 @@ func callHookFileWithHmac(myurl string, payload map[string]string, userID string
 			time.Sleep(delayDuration)
 		}
 
-		var hmacSignature string
-		var jsonPayload []byte
-
+		req := client.R()
 		if len(encryptedHmacKey) > 0 {
-			var err error
-			jsonPayload, err = json.Marshal(finalPayload)
+			body, contentType, err := multipartWebhookBody(finalPayload, file)
 			if err != nil {
-				log.Error().Err(err).Msg("Failed to marshal payload for HMAC")
-			} else {
-				hmacSignature, err = generateHmacSignature(jsonPayload, encryptedHmacKey)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to generate HMAC signature")
-				}
+				lastError = err
+				log.Error().Err(err).Int("attempt", attempt+1).Str("url", myurl).Msg("Failed to build multipart webhook body")
+				continue
 			}
-		}
 
-		req := client.R().
-			SetFiles(map[string]string{
-				"file": file,
-			}).
-			SetFormData(finalPayload)
-
-		if hmacSignature != "" {
+			hmacSignature, err := generateHmacSignature(body, encryptedHmacKey)
+			if err != nil {
+				lastError = err
+				log.Error().Err(err).Int("attempt", attempt+1).Str("url", myurl).Msg("Failed to generate HMAC signature")
+				continue
+			}
 			req.SetHeader("x-hmac-signature", hmacSignature)
+			req.SetHeader("Content-Type", contentType).SetBody(body)
+		} else {
+			req.SetFiles(map[string]string{"file": file}).SetFormData(finalPayload)
 		}
 
 		resp, postErr := req.Post(myurl)
@@ -503,6 +499,33 @@ func callHookFileWithHmac(myurl string, payload map[string]string, userID string
 	}
 
 	return nil
+}
+
+func multipartWebhookBody(payload map[string]string, file string) ([]byte, string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range payload {
+		if err := writer.WriteField(key, value); err != nil {
+			return nil, "", err
+		}
+	}
+
+	part, err := writer.CreateFormFile("file", file)
+	if err != nil {
+		return nil, "", err
+	}
+	fh, err := os.Open(file)
+	if err != nil {
+		return nil, "", err
+	}
+	defer fh.Close()
+	if _, err := io.Copy(part, fh); err != nil {
+		return nil, "", err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return body.Bytes(), writer.FormDataContentType(), nil
 }
 
 func (s *server) respondWithJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
