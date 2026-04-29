@@ -155,9 +155,9 @@ jobs:
           ENV_FILE: ${{ secrets.ENV_FILE }}
         run: |
           if [ -n "$ENV_FILE" ]; then
-            echo "📝 Updating .env file on server..."
-            echo "$ENV_FILE" | ssh $VPS_USER@$VPS_HOST "cat > ~/genfity/whatsapp-api/.env"
-            echo "✅ ENV file updated!"
+            echo "📝 Updating .env file on server (full replace)..."
+            printf '%s' "$ENV_FILE" | ssh $VPS_USER@$VPS_HOST "cat > /tmp/whatsapp-api.env && sudo install -m 600 -o root -g root /tmp/whatsapp-api.env /home/$VPS_USER/genfity/whatsapp-api/.env && rm -f /tmp/whatsapp-api.env"
+            echo "✅ ENV file updated with full replace!"
           else
             echo "⏭️ ENV_FILE secret not set, skipping .env update"
           fi
