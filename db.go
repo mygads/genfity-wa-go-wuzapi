@@ -113,7 +113,7 @@ func initializeSQLite(config DatabaseConfig) (*sqlx.DB, error) {
 		Str("path", dbPath).
 		Msg("Attempting to connect to SQLite database...")
 
-	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_busy_timeout=3000")
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}

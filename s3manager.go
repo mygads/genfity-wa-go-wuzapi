@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog/log"
 )
 
@@ -32,6 +33,7 @@ type S3Config struct {
 // S3Manager manages S3 operations
 type S3Manager struct {
 	mu      sync.RWMutex
+	db      *sqlx.DB
 	clients map[string]*s3.Client
 	configs map[string]*S3Config
 }
@@ -45,6 +47,56 @@ var s3Manager = &S3Manager{
 // GetS3Manager returns the global S3 manager instance
 func GetS3Manager() *S3Manager {
 	return s3Manager
+}
+
+// SetDB sets the database reference for lazy S3 client initialization
+func (m *S3Manager) SetDB(db *sqlx.DB) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.db = db
+}
+
+// EnsureClientFromDB loads S3 config from DB and initializes client if enabled. Returns true if client is available.
+func (m *S3Manager) EnsureClientFromDB(userID string) bool {
+	if _, _, ok := m.GetClient(userID); ok {
+		return true
+	}
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+	if db == nil {
+		return false
+	}
+	var s3DbConfig struct {
+		Enabled       bool   `db:"s3_enabled"`
+		Endpoint      string `db:"s3_endpoint"`
+		Region        string `db:"s3_region"`
+		Bucket        string `db:"s3_bucket"`
+		AccessKey     string `db:"s3_access_key"`
+		SecretKey     string `db:"s3_secret_key"`
+		PathStyle     bool   `db:"s3_path_style"`
+		PublicURL     string `db:"s3_public_url"`
+		MediaDelivery string `db:"media_delivery"`
+		RetentionDays int    `db:"s3_retention_days"`
+	}
+	query := `SELECT s3_enabled, s3_endpoint, s3_region, s3_bucket, s3_access_key, s3_secret_key, s3_path_style, s3_public_url, COALESCE(media_delivery, 'base64') AS media_delivery, COALESCE(s3_retention_days, 30) AS s3_retention_days FROM users WHERE id = $1`
+	query = db.Rebind(query)
+	if err := db.Get(&s3DbConfig, query, userID); err != nil || !s3DbConfig.Enabled {
+		return false
+	}
+	config := &S3Config{
+		Enabled:       s3DbConfig.Enabled,
+		Endpoint:      s3DbConfig.Endpoint,
+		Region:        s3DbConfig.Region,
+		Bucket:        s3DbConfig.Bucket,
+		AccessKey:     s3DbConfig.AccessKey,
+		SecretKey:     s3DbConfig.SecretKey,
+		PathStyle:     s3DbConfig.PathStyle,
+		PublicURL:     s3DbConfig.PublicURL,
+		MediaDelivery: s3DbConfig.MediaDelivery,
+		RetentionDays: s3DbConfig.RetentionDays,
+	}
+	return m.InitializeS3Client(userID, config) == nil
 }
 
 // InitializeS3Client creates or updates S3 client for a user
@@ -129,9 +181,9 @@ func (m *S3Manager) GenerateS3Key(userID, contactJID, messageID string, mimeType
 
 	// Get current time
 	now := time.Now()
-	year := now.Format("2025")
-	month := now.Format("05")
-	day := now.Format("25")
+	year := now.Format("2006")
+	month := now.Format("01")
+	day := now.Format("02")
 
 	// Determine media type folder
 	mediaType := "documents"
@@ -164,6 +216,10 @@ func (m *S3Manager) GenerateS3Key(userID, contactJID, messageID string, mimeType
 		ext = ".opus"
 	case strings.Contains(mimeType, "pdf"):
 		ext = ".pdf"
+	case strings.Contains(mimeType, "spreadsheetml"):
+		ext = ".xlsx"
+	case strings.Contains(mimeType, "excel"):
+		ext = ".xls"
 	case strings.Contains(mimeType, "doc"):
 		if strings.Contains(mimeType, "docx") {
 			ext = ".docx"
@@ -192,7 +248,13 @@ func (m *S3Manager) GenerateS3Key(userID, contactJID, messageID string, mimeType
 func (m *S3Manager) UploadToS3(ctx context.Context, userID string, key string, data []byte, mimeType string) error {
 	client, config, ok := m.GetClient(userID)
 	if !ok {
-		return fmt.Errorf("S3 client not initialized for user %s", userID)
+		// Try lazy init from DB if available (handles reconnect-after-restart)
+		if m.EnsureClientFromDB(userID) {
+			client, config, ok = m.GetClient(userID)
+		}
+		if !ok {
+			return fmt.Errorf("S3 client not initialized for user %s", userID)
+		}
 	}
 
 	// Set content type and cache headers for preview
