@@ -5964,7 +5964,11 @@ func (s *server) ConfigureS3() http.HandlerFunc {
 		}
 
 		if t.MediaDelivery == "" {
-			t.MediaDelivery = "base64"
+			if t.Enabled {
+				t.MediaDelivery = "s3"
+			} else {
+				t.MediaDelivery = "base64"
+			}
 		}
 
 		// Update database

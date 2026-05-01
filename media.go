@@ -82,6 +82,11 @@ func (mycli *MyClient) processMedia(
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to upload media to S3")
+			postmap["media_error"] = map[string]interface{}{
+				"code":     "s3_upload_failed",
+				"message":  err.Error(),
+				"mimeType": mimeType,
+			}
 		} else {
 			postmap["s3"] = s3Data
 		}
