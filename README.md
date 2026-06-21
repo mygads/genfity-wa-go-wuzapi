@@ -13,9 +13,9 @@ Be very careful—do not use this to send SPAM or anything similar. Use at your 
 
 * **Session:** Connect, disconnect, and log out from WhatsApp. Retrieve connection status and QR codes for scanning.
 * **Messages:** Send text, image, audio, document, template, video, sticker, location, contact, and poll messages.
-* **Users:** Check if phone numbers have WhatsApp, get user information and avatars, and retrieve the full contact list.
+* **Users:** Check if phone numbers have WhatsApp, get user information and avatars, retrieve the full contact list, block/unblock users and read the blocklist, and read/update privacy settings.
 * **Chat:** Set presence (typing/paused, recording media), mark messages as read, download images from messages, send reactions.
-* **Groups:** Create, delete and list groups, get info, get invite links, set participants, change group photos and names.
+* **Groups:** Create, delete and list groups, get info, get invite links, set participants, change group photos and names, and approve/reject join requests.
 * **Webhooks:** Set and get webhooks that will be called whenever events or messages are received.
 * **HMAC Configuration:** Configure HMAC keys for webhook security and signature verification.
 * **History:** Configure and retrieve message history storage for analytics, backup, and audit purposes.
