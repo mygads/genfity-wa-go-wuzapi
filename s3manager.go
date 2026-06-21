@@ -376,6 +376,230 @@ func (m *S3Manager) ProcessMediaForS3(ctx context.Context, userID, contactJID, m
 	return s3Data, nil
 }
 
+// userLifecycleRuleID returns the deterministic lifecycle rule ID for a user so
+// repeated applies update (rather than duplicate) the same rule.
+func userLifecycleRuleID(userID string) string {
+	return "genfity-wa-retention-" + userID
+}
+
+// ApplyRetentionLifecycle installs/updates an S3 bucket lifecycle rule that
+// expires this user's objects (prefix users/{userID}/) after RetentionDays.
+// Multiple users can share a bucket, so the user's rule is merged into the
+// existing configuration by rule ID instead of overwriting it. A no-op when
+// retention is disabled (RetentionDays <= 0). Best-effort: some S3-compatible
+// providers reject lifecycle APIs — callers should log and rely on the cron
+// fallback in that case.
+func (m *S3Manager) ApplyRetentionLifecycle(ctx context.Context, userID string) error {
+	client, config, ok := m.GetClient(userID)
+	if !ok {
+		if m.EnsureClientFromDB(userID) {
+			client, config, ok = m.GetClient(userID)
+		}
+		if !ok {
+			return fmt.Errorf("S3 client not initialized for user %s", userID)
+		}
+	}
+
+	ruleID := userLifecycleRuleID(userID)
+	prefix := fmt.Sprintf("users/%s/", userID)
+
+	// Fetch existing rules so we don't clobber other users sharing the bucket.
+	var existingRules []types.LifecycleRule
+	current, err := client.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{
+		Bucket: aws.String(config.Bucket),
+	})
+	if err != nil {
+		// "no such lifecycle configuration" is expected on first run; treat any
+		// read error as an empty baseline and let the Put surface real failures.
+		existingRules = nil
+	} else {
+		existingRules = current.Rules
+	}
+
+	// Drop any prior rule for this user; we'll re-add the desired state below.
+	merged := make([]types.LifecycleRule, 0, len(existingRules)+1)
+	for _, r := range existingRules {
+		if r.ID != nil && *r.ID == ruleID {
+			continue
+		}
+		merged = append(merged, r)
+	}
+
+	// retention disabled → just remove our rule (handled by the skip above).
+	if config.RetentionDays > 0 {
+		days := int32(config.RetentionDays)
+		merged = append(merged, types.LifecycleRule{
+			ID:     aws.String(ruleID),
+			Status: types.ExpirationStatusEnabled,
+			Filter: &types.LifecycleRuleFilter{Prefix: aws.String(prefix)},
+			Expiration: &types.LifecycleExpiration{
+				Days: aws.Int32(days),
+			},
+		})
+	}
+
+	if len(merged) == 0 {
+		// Nothing left to configure; remove the bucket lifecycle entirely.
+		_, err := client.DeleteBucketLifecycle(ctx, &s3.DeleteBucketLifecycleInput{
+			Bucket: aws.String(config.Bucket),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete bucket lifecycle: %w", err)
+		}
+		return nil
+	}
+
+	_, err = client.PutBucketLifecycleConfiguration(ctx, &s3.PutBucketLifecycleConfigurationInput{
+		Bucket: aws.String(config.Bucket),
+		LifecycleConfiguration: &types.BucketLifecycleConfiguration{
+			Rules: merged,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to put bucket lifecycle: %w", err)
+	}
+
+	log.Info().Str("userID", userID).Int("retentionDays", config.RetentionDays).Msg("S3 retention lifecycle applied")
+	return nil
+}
+
+// DeleteExpiredUserObjects deletes this user's objects older than RetentionDays.
+// This is the cron fallback for S3-compatible providers that don't enforce
+// lifecycle rules (e.g. some MinIO/B2 setups). No-op when retention is disabled.
+func (m *S3Manager) DeleteExpiredUserObjects(ctx context.Context, userID string) (int, error) {
+	client, config, ok := m.GetClient(userID)
+	if !ok {
+		if m.EnsureClientFromDB(userID) {
+			client, config, ok = m.GetClient(userID)
+		}
+		if !ok {
+			return 0, fmt.Errorf("S3 client not initialized for user %s", userID)
+		}
+	}
+
+	if config.RetentionDays <= 0 {
+		return 0, nil
+	}
+
+	cutoff := time.Now().Add(-time.Duration(config.RetentionDays) * 24 * time.Hour)
+	prefix := fmt.Sprintf("users/%s/", userID)
+
+	var toDelete []types.ObjectIdentifier
+	var continuationToken *string
+	deleted := 0
+
+	flush := func() error {
+		if len(toDelete) == 0 {
+			return nil
+		}
+		_, err := client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(config.Bucket),
+			Delete: &types.Delete{Objects: toDelete},
+		})
+		if err != nil {
+			return err
+		}
+		deleted += len(toDelete)
+		toDelete = nil
+		return nil
+	}
+
+	for {
+		output, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(config.Bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return deleted, fmt.Errorf("failed to list objects for user %s: %w", userID, err)
+		}
+
+		for _, obj := range output.Contents {
+			if obj.LastModified == nil || obj.LastModified.After(cutoff) {
+				continue
+			}
+			toDelete = append(toDelete, types.ObjectIdentifier{Key: obj.Key})
+			if len(toDelete) == 1000 { // S3 batch delete limit
+				if err := flush(); err != nil {
+					return deleted, fmt.Errorf("failed to delete expired objects for user %s: %w", userID, err)
+				}
+			}
+		}
+
+		if output.IsTruncated != nil && *output.IsTruncated && output.NextContinuationToken != nil {
+			continuationToken = output.NextContinuationToken
+		} else {
+			break
+		}
+	}
+
+	if err := flush(); err != nil {
+		return deleted, fmt.Errorf("failed to delete expired objects for user %s: %w", userID, err)
+	}
+
+	if deleted > 0 {
+		log.Info().Str("userID", userID).Int("deleted", deleted).Time("cutoff", cutoff).Msg("expired S3 objects removed")
+	}
+	return deleted, nil
+}
+
+// RunRetentionSweep iterates all S3-enabled users and deletes their expired
+// objects. Intended to be called periodically by a background scheduler.
+func (m *S3Manager) RunRetentionSweep(ctx context.Context) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+	if db == nil {
+		return
+	}
+
+	// EnsureClientFromDB re-checks s3_enabled per user, so we only need the
+	// retention filter here (kept portable across postgres/sqlite).
+	var userIDs []string
+	query := db.Rebind(`SELECT id FROM users WHERE COALESCE(s3_retention_days, 0) > 0`)
+	if err := db.Select(&userIDs, query); err != nil {
+		log.Error().Err(err).Msg("retention sweep: failed to list S3-enabled users")
+		return
+	}
+
+	for _, userID := range userIDs {
+		if !m.EnsureClientFromDB(userID) {
+			continue
+		}
+		if _, err := m.DeleteExpiredUserObjects(ctx, userID); err != nil {
+			log.Warn().Err(err).Str("userID", userID).Msg("retention sweep: cleanup failed for user")
+		}
+	}
+}
+
+// StartRetentionScheduler launches a background ticker that runs the retention
+// sweep daily (with one run shortly after startup). Returns immediately.
+func (m *S3Manager) StartRetentionScheduler(ctx context.Context) {
+	go func() {
+		// Initial delay so startup/reconnect settles before the first sweep.
+		timer := time.NewTimer(5 * time.Minute)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		m.RunRetentionSweep(ctx)
+
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.RunRetentionSweep(ctx)
+			}
+		}
+	}()
+	log.Info().Msg("S3 retention scheduler started (daily sweep)")
+}
+
 // DeleteAllUserObjects deletes all user files from S3
 func (m *S3Manager) DeleteAllUserObjects(ctx context.Context, userID string) error {
 	client, config, ok := m.GetClient(userID)

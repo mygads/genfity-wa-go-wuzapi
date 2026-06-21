@@ -401,6 +401,10 @@ func main() {
 	// Set DB reference in S3Manager for lazy client initialization
 	GetS3Manager().SetDB(db)
 
+	// Start the daily S3 retention sweep (cron fallback for providers that
+	// don't enforce bucket lifecycle rules).
+	GetS3Manager().StartRetentionScheduler(context.Background())
+
 	var dbLog waLog.Logger
 	if *waDebug != "" {
 		dbLog = waLog.Stdout("Database", *waDebug, *colorOutput)

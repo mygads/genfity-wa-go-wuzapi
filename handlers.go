@@ -6012,6 +6012,15 @@ func (s *server) ConfigureS3() http.HandlerFunc {
 				s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to initialize S3 client: %v", err)))
 				return
 			}
+
+			// Install/update the bucket lifecycle rule so objects expire after
+			// retention_days. Best-effort: some S3-compatible providers reject
+			// lifecycle APIs, in which case the daily retention sweep handles it.
+			if t.RetentionDays > 0 {
+				if lcErr := GetS3Manager().ApplyRetentionLifecycle(r.Context(), txtid); lcErr != nil {
+					log.Warn().Err(lcErr).Str("userID", txtid).Msg("could not apply S3 retention lifecycle; relying on daily cleanup sweep")
+				}
+			}
 		} else {
 			GetS3Manager().RemoveClient(txtid)
 		}
