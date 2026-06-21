@@ -6,6 +6,7 @@ var activeEventTypes = []string{
 	"Message",
 	"MessageSent",
 	"Receipt",
+	"ReadReceipt",
 
 	// Connection and Session
 	"Connected",
