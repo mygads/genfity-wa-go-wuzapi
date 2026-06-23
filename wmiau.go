@@ -496,10 +496,16 @@ func (s *server) startClient(userID string, textjid string, token string, kill c
 	// Set proxy if defined in DB (assumes users table contains proxy_url column)
 	var proxyURL string
 	err = s.db.Get(&proxyURL, "SELECT proxy_url FROM users WHERE id=$1", userID)
+	proxyURL = strings.TrimSpace(proxyURL)
 	if err == nil && proxyURL != "" {
 		parsed, perr := url.Parse(proxyURL)
+		// A bare token like "t" parses without error but yields an empty
+		// scheme/host, which makes resty/whatsmeow dial "tcp :0" and silently
+		// break every webhook for this instance. Require a real scheme + host.
 		if perr != nil {
 			log.Warn().Err(perr).Str("proxy", proxyURL).Msg("Invalid proxy URL, skipping proxy setup")
+		} else if parsed.Scheme == "" || parsed.Host == "" {
+			log.Warn().Str("proxy", proxyURL).Msg("Proxy URL missing scheme or host, skipping proxy setup")
 		} else {
 
 			log.Info().Str("proxy", proxyURL).Msg("Configuring proxy")

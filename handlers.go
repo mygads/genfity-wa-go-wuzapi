@@ -5651,7 +5651,16 @@ func (s *server) EditUser() http.HandlerFunc {
 		// Handle proxy config
 		if user.ProxyConfig != nil {
 			if user.ProxyConfig.Enabled {
-				addField("proxy_url", user.ProxyConfig.ProxyURL, true)
+				// Reject a malformed proxy (e.g. a stray "t") instead of persisting
+				// it — a scheme/host-less value makes the webhook client dial
+				// "tcp :0" and silently breaks every webhook for this instance.
+				pxy := strings.TrimSpace(user.ProxyConfig.ProxyURL)
+				if parsed, perr := url.Parse(pxy); pxy == "" || perr != nil || parsed.Scheme == "" || parsed.Host == "" {
+					log.Warn().Str("proxy", pxy).Msg("Ignoring invalid proxy_url on user update; storing empty")
+					addField("proxy_url", "", true)
+				} else {
+					addField("proxy_url", pxy, true)
+				}
 			} else {
 				addField("proxy_url", "", true)
 			}
