@@ -97,6 +97,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,prefix=
+            type=sha,prefix=,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
@@ -156,7 +157,7 @@ jobs:
         run: |
           if [ -n "$ENV_FILE" ]; then
             echo "📝 Updating .env file on server (full replace)..."
-            printf '%s' "$ENV_FILE" | ssh $VPS_USER@$VPS_HOST "cat > /tmp/whatsapp-api.env && sudo install -m 600 -o root -g root /tmp/whatsapp-api.env /home/$VPS_USER/genfity/whatsapp-api/.env && rm -f /tmp/whatsapp-api.env"
+            printf '%s' "$ENV_FILE" | ssh $VPS_USER@$VPS_HOST "cat > /tmp/whatsapp-api.env && install -m 600 /tmp/whatsapp-api.env /home/$VPS_USER/genfity/whatsapp-api/.env && rm -f /tmp/whatsapp-api.env"
             echo "✅ ENV file updated with full replace!"
           else
             echo "⏭️ ENV_FILE secret not set, skipping .env update"
@@ -179,20 +180,29 @@ jobs:
             git reset --hard origin/main
             git remote set-url origin https://github.com/${{ github.repository }}.git
             
-            # Login to GHCR
-            echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u mygads --password-stdin
-            
-            # Set image and deploy using docker compose
-            export IMAGE=ghcr.io/mygads/genfity-wa:latest
-            
-            # Pull and recreate
-            sudo -E docker compose pull
-            sudo -E docker compose up -d --force-recreate
-            
+            # Run docker WITHOUT sudo: cicddeploy is in the docker group, and
+            # this box's sudoers has 'Defaults env_reset' so 'sudo -E' is
+            # IGNORED — IMAGE would be dropped and compose fall back to its
+            # default tag. Pin to the immutable SHA tag, then verify.
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u mygads --password-stdin
+
+            export IMAGE=ghcr.io/mygads/genfity-wa:${{ github.sha }}
+
+            docker compose pull
+            docker compose up -d --force-recreate
+
+            # Verify the running container is the pushed commit (health check
+            # alone can't tell stale from fresh).
+            EXPECTED="${{ github.sha }}"
+            RUNNING=\$(docker inspect wa-api --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+            echo "Expected: \$EXPECTED  Running: \$RUNNING"
+            if [ "\$RUNNING" != "\$EXPECTED" ]; then echo "❌ revision mismatch"; exit 1; fi
+            echo "✅ Running revision matches deployed commit"
+
             # Cleanup old images
             echo "🧹 Cleaning up..."
-            sudo docker image prune -af --filter "until=24h" 2>/dev/null || true
-            
+            docker image prune -af --filter "until=24h" 2>/dev/null || true
+
             echo "✅ Deployment complete!"
           ENDSSH
 
@@ -208,15 +218,15 @@ jobs:
             for i in {1..5}; do
               if curl -sf http://localhost:8080/health > /dev/null; then
                 echo "✅ Health check passed!"
-                sudo docker ps | grep wa-api
+                docker ps | grep wa-api
                 exit 0
               fi
               echo "Attempt $i failed, retrying..."
               sleep 5
             done
-            
+
             echo "❌ Health check failed!"
-            sudo docker logs wa-api --tail 50
+            docker logs wa-api --tail 50
             exit 1
           ENDSSH
 
@@ -252,6 +262,6 @@ jobs:
         run: |
           ssh $VPS_USER@$VPS_HOST << 'ENDSSH'
             echo "🧹 Running scheduled cleanup..."
-            sudo docker system prune -f --filter "until=24h"
+            docker system prune -f --filter "until=24h"
             echo "✅ Cleanup complete!"
           ENDSSH
