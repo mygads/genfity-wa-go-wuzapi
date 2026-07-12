@@ -189,6 +189,13 @@ jobs:
             export IMAGE=ghcr.io/mygads/genfity-wa:${{ github.sha }}
 
             docker compose pull
+
+            # Remove any stale compose-prefixed container (e.g.
+            # 8389…_wa-api) that would block --force-recreate with a name
+            # conflict. Only targets the prefixed form, never the clean
+            # 'wa-api' the deploy manages.
+            docker ps -a --format '{{.ID}} {{.Names}}' | awk '\$2 ~ /_wa-api\$/ {print \$1}' | xargs -r docker rm -f || true
+
             docker compose up -d --force-recreate
 
             # Verify the running container is the pushed commit (health check
